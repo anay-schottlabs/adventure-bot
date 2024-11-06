@@ -16,7 +16,10 @@ def get_all():
 
 # Adds the provided object into the database
 def add_item(item):
-  collection.insert_one(item)
+  id = collection.insert_one(item).inserted_id
+  new_item = item
+  new_item["_id"] = id
+  return new_item
 
 # Finds the object in the database by its id
 # Replaces the found object's value with the object's current value
