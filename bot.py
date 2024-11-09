@@ -15,8 +15,21 @@ bot = commands.Bot(command_prefix = "!", intents = discord.Intents.default())
 # Game variables
 campaigns = database.get_all()
 
-# Formatting variables
-INDENT_SPACES = 8
+# Game functions
+def display_campaign_details(index):
+  result = ""
+  # The name of the campaign and its dungeon master
+  result += f"{index + 1}. `{campaigns[index]['name']}`\n> Dungeon Master: `{campaigns[index]['dungeon_master']}`"
+  # The players of the campaign
+  if len(campaigns[index]["players"]) > 0:
+    result += f"\n> Players:"
+    for j in range(len(campaigns[index]["players"])):
+      result += f"\n> {j + 1}. {campaigns[index]['players'][j]['name']}"
+  # If the campaign has no players
+  else:
+    result += f"\n> This campaign has no players."
+  result += "\n"
+  return result
 
 @bot.event
 async def on_ready():
@@ -37,6 +50,10 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
       # If the campaign name is "all", it could can cause issues with other commands
       if name == "all":
         await interaction.response.send_message("The campaign name cannot be \"all\".")
+      for campaign in campaigns:
+        if campaign["name"] == name:
+          await interaction.response.send_message(f"Whoops, it looks like there's already another campaign with the name `{name}`! Please try again with a different name.")
+          break
       else:
         new_campaign = {
           "name": name,
@@ -45,26 +62,28 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
           "items": []
         }
         campaigns.append(database.add_item(new_campaign))
-        await interaction.response.send_message(f"A new campaign with the name \"{name}\" has been created.")
+        await interaction.response.send_message(f"A new campaign with the name `{name}` has been created.")
     case "show":
+      if len(campaigns) == 0:
+        await interaction.response.send_message("No campaigns have been created yet! Use `/campaign create` to create a new one!")
+        return
       result = ""
-      # Show the details of all campaigns
-      if name == "all":
-        for i in range(len(campaigns)):
-          result += f"{i + 1}. {campaigns[i]['name']}\n{' ' * INDENT_SPACES}Dungeon Master: {campaigns[i]['dungeon_master']}\n"
-          if len(campaigns[i]["players"]) > 0:
-            result += f"{' ' * INDENT_SPACES}Players:\n"
-            for j in range(len(campaigns[i]["players"])):
-              result += f"{' ' * ((INDENT_SPACES * 2) - (INDENT_SPACES))}{j + 1}. {campaigns[i]['players'][j]['name']}\n"
-          else:
-            result += f"{' ' * INDENT_SPACES}This campaign has no players."
-      # Show the details of a specific campaign
+      for i in range(len(campaigns)):
+        # If we are showing all campaigns, add this campaign's details to the list
+        if name == "all":
+          result += display_campaign_details(i)
+        # If we are showing a specific campaign, set the list's value to its details
+        elif campaigns[i]["name"] == name:
+          result = display_campaign_details(i)
+          break
       else:
-        pass
+        if name != "all":
+          await interaction.response.send_message(f"No campaign was found with the name `{name}`! Use `/campaign show all` to get a list of all created campaigns.")
+          return
       await interaction.response.send_message(result)
     # If an unknown command has been given
     case _:
-      await interaction.response.send_message("Whoops! Looks like you provided an invalid command. Use /help for more info.")
+      await interaction.response.send_message("Whoops! Looks like you provided an invalid command. Use `/help` for more info.")
 
 # Run the bot
 bot.run(TOKEN)
