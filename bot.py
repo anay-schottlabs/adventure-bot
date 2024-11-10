@@ -48,12 +48,14 @@ def display_campaign_details(index):
   result += "\n"
   return result
 
+# Check if a user is the dungeon master of a campaign
 async def is_dungeon_master(campaign, interaction):
   if campaign["dungeon_master"] == interaction.user.name:
     return True
   await interaction.response.send_message(NOT_DUNGEON_MASTER(campaign['name']))
   return False
 
+# Check if a user is a player in a campaign
 async def is_player(campaign, interaction):
   for i in range(len(campaign["players"])):
     if campaign["players"][i]["name"] == interaction.user.name:
@@ -61,12 +63,28 @@ async def is_player(campaign, interaction):
     await interaction.response.send_message(NOT_PLAYER(campaign['name']))
   return False
 
+# Check if management mode is active
+async def is_manage_mode(campaign, interaction):
+  if mode == CampaignMode.MANAGE:
+    return True
+  await interaction.response.send_message(MANAGE_MODE_NOT_ACTIVE(campaign['name']))
+  return False
+
+# Check if play mode is active
+async def is_play_mode(interaction):
+  if mode == CampaignMode.PLAY:
+    return True
+  await interaction.response.send_message(PLAY_MODE_NOT_ACTIVE(campaign['name']))
+  return False
+
+# Change the type of commands that can be used
 async def change_mode(new_mode, name, interaction):
   for i in range(len(campaigns)):
     # Find the campaign with the given name
     if campaigns[i]["name"] == name:
       # If the player owns the campaign, change the mode
       if await is_dungeon_master(campaigns[i], interaction):
+        global mode, campaign_index
         mode = new_mode
         campaign_index = campaigns[i]
         if new_mode == CampaignMode.MANAGE:
@@ -90,7 +108,7 @@ async def on_ready():
 
 # Commands associated with managing the campaigns
 @bot.tree.command(name="campaign")
-@app_commands.describe(command = "command", name = "name")
+@app_commands.describe(command="command", name="name")
 async def campaign(interaction: discord.Interaction, command: str, name: str):
   match command:
     # Create a new campaign
@@ -142,6 +160,15 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
     # If an unknown command has been given
     case _:
       await interaction.response.send_message("Whoops! Looks like you provided an invalid command. Use `/help` for more info.")
+
+# Change the name of a campaign
+@bot.tree.command(name="changename")
+@app_commands.describe(name="name")
+async def change_name(interaction: discord.Interaction, name: str):
+  if await is_manage_mode(campaigns[campaign_index], interaction):
+    campaigns[campaign_index]["name"] = name
+    database.update_item(campaigns[campaign_index])
+    await interaction.response.send_message(f"Changed the name of the campaign to `{name}`.")
 
 # Run the bot
 bot.run(TOKEN)
