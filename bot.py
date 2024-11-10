@@ -21,6 +21,7 @@ NOT_DUNGEON_MASTER = lambda campaign_name : f"It looks like you aren't the dunge
 NOT_PLAYER = lambda campaign_name : f"It looks like you aren't a player in `{campaign_name}`. Only the campaign's players can call this command."
 NO_CAMPAIGN_FOUND = lambda campaign_name : f"No campaign was found with the name `{campaign_name}`! Use `/campaign show all` to get a list of all created campaigns."
 MANAGE_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like management mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign manage {campaign_name}` to use this command."
+PLAY_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like play mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign play {campaign_name}` to use this command."
 
 # Campaign modes
 class CampaignMode(Enum):
