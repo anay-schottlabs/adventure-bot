@@ -20,7 +20,8 @@ campaigns = database.get_all()
 
 # Common messages
 NOT_DUNGEON_MASTER = lambda campaign_name : f"It looks like you aren't the dungeon master of `{campaign_name}`. Only the campaign's dungeon master can call this command."
-NOT_PLAYER = lambda campaign_name : f"It looks like you aren't a player in `{campaign_name}`. Only the campaign's players can call this command."
+NOT_PLAYER_NO_ACCESS = lambda campaign_name : f"It looks like you aren't a player in `{campaign_name}`. Only the campaign's players can call this command."
+NOT_PLAYER_NO_REMOVE = lambda campaign_name, username : f"No user with the name `{username}` exists in `{campaign_name}`, so you can't remove them from the campaign."
 NO_CAMPAIGN_FOUND = lambda campaign_name : f"No campaign was found with the name `{campaign_name}`! Use `/campaign show all` to get a list of all created campaigns."
 MANAGE_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like management mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign manage {campaign_name}` to use this command."
 PLAY_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like play mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign play {campaign_name}` to use this command."
@@ -54,29 +55,32 @@ def display_campaign_details(index):
 async def is_dungeon_master(campaign, interaction):
   if campaign["dungeon_master"] == interaction.user.name:
     return True
-  await interaction.response.send_message(NOT_DUNGEON_MASTER(campaign['name']))
+  await interaction.response.send_message(NOT_DUNGEON_MASTER(campaign["name"]))
   return False
 
 # Check if a user is a player in a campaign
-async def is_player(campaign, interaction):
+async def is_player(campaign, interaction, username, is_player_only_command):
   for i in range(len(campaign["players"])):
-    if campaign["players"][i]["name"] == interaction.user.name:
-      return True
-    await interaction.response.send_message(NOT_PLAYER(campaign['name']))
-  return False
+    if campaign["players"][i]["name"] == username:
+      return campaign["players"][i]
+  if is_player_only_command:
+    await interaction.response.send_message(NOT_PLAYER_NO_ACCESS(campaign["name"]))
+  else:
+    await interaction.response.send_message(NOT_PLAYER_NO_REMOVE(campaign["name"], username))
+  return None
 
 # Check if management mode is active
 async def is_manage_mode(campaign, interaction):
   if mode == CampaignMode.MANAGE:
     return True
-  await interaction.response.send_message(MANAGE_MODE_NOT_ACTIVE(campaign['name']))
+  await interaction.response.send_message(MANAGE_MODE_NOT_ACTIVE(campaign["name"]))
   return False
 
 # Check if play mode is active
 async def is_play_mode(interaction):
   if mode == CampaignMode.PLAY:
     return True
-  await interaction.response.send_message(PLAY_MODE_NOT_ACTIVE(campaign['name']))
+  await interaction.response.send_message(PLAY_MODE_NOT_ACTIVE(campaign["name"]))
   return False
 
 # Change the type of commands that can be used
@@ -188,9 +192,19 @@ async def add_player(interaction: discord.Interaction, username: str):
           "inventory": []
         })
         database.update_item(campaigns[campaign_index])
-        await interaction.response.send_message(f"`{username}` has been added to {campaigns[campaign_index]['name']}.")
+        await interaction.response.send_message(f"`{username}` has been added to `{campaigns[campaign_index]['name']}`.")
         return
     await interaction.response.send_message(f"No user with the name `{username}` exists in this server.")
+
+# Remove a player from a campaign
+@bot.tree.command(name="removeplayer")
+@app_commands.describe(username="username")
+async def add_player(interaction: discord.Interaction, username: str):
+  player = await is_player(campaigns[campaign_index], interaction, username, False)
+  if await is_manage_mode(campaigns[campaign_index], interaction) and player:
+    campaigns[campaign_index]["players"].remove(player)
+    database.update_item(campaigns[campaign_index])
+    await interaction.response.send_message(f"`{username}` has been removed from `{campaigns[campaign_index]['name']}`.")
 
 # Run the bot
 bot.run(TOKEN)
