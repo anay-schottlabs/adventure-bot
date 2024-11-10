@@ -41,6 +41,37 @@ def display_campaign_details(index):
   result += "\n"
   return result
 
+def is_dungeon_master(campaign, name):
+  if campaign["dungeon_master"] == name:
+    return True
+  return False
+
+def is_player(campaign, name):
+  for i in range(len(campaign["players"])):
+    if campaign["players"][i]["name"] == name:
+      return True
+  return False
+
+async def change_mode(new_mode, name, interaction):
+  for i in range(len(campaigns)):
+    # Find the campaign with the given name
+    if campaigns[i]["name"] == name:
+      if not is_dungeon_master(campaigns[i], interaction.user.name):
+        await interaction.response.send_message(f"It looks like you aren't the dungeon master of `{campaigns[i]['name']}`! Only the campaign's dungeon master can call this command.")
+      # If the player owns the campaign, then enable management commands
+      else:
+        mode = new_mode
+        campaign_index = campaigns[i]
+        if new_mode == CampaignMode.MANAGE:
+          await interaction.response.send_message(f"You can now access management commands for `{campaigns[i]['name']}`.")
+        elif new_mode == CampaignMode.PLAY:
+          await interaction.response.send_message(f"You can now access play commands for `{campaigns[i]['name']}`.")
+        elif new_mode == CampaignMode.NONE:
+          await interaction.response.send_message(f"Exited `{campaigns[i]['name']}`.")
+      break
+  else:
+    await interaction.response.send_message(f"No campaign was found with the name `{name}`! Use `/campaign show all` to get a list of all created campaigns.")
+
 @bot.event
 async def on_ready():
   try:
@@ -94,33 +125,13 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
       await interaction.response.send_message(result)
     # Enable management commands for a campaign
     case "manage":
-      for campaign in campaigns:
-        if campaign["name"] == name:
-          global selected_campaign
-          selected_campaign = campaign
-          break
-      else:
-        await interaction.response.send_message(f"No campaign was found with the name `{name}`! Use `/campaign show all` to get a list of all created campaigns.")
-        return
-      if selected_campaign["dungeon_master"] != interaction.user.name:
-        await interaction.response.send_message(f"It looks like you aren't the dungeon master of `{campaign['name']}`! Only the campaign's dungeon master can call this command.")
-        return
-      else:
-        mode = CampaignMode.MANAGE
-        campaign_index = campaigns.index(selected_campaign)
-        await interaction.response.send_message(f"You can now access management commands for `{campaigns[campaign_index]['name']}`.")
+      await change_mode(CampaignMode.MANAGE, name, interaction)
     # Enable play commands for a campaign
     case "play":
-      for campaign in campaigns:
-        if campaign["name"] == name:
-          selected_campaign = campaign
-          break
-      else:
-        await interaction.response.send_message(f"No campaign was found with the name `{name}`! Use `/campaign show all` to get a list of all created campaigns.")
-        return
-      if selected_campaign["dungeon_master"] != interaction.user.name:
-        await interaction.response.send_message(f"It looks like you aren't the dungeon master of `{campaign['name']}`! Only the campaign's dungeon master can call this command.")
-        return
+      await change_mode(CampaignMode.PLAY, name, interaction)
+    # Disable management and play commands
+    case "exit":
+      await change_mode(CampaignMode.NONE, name, interaction)
     # If an unknown command has been given
     case _:
       await interaction.response.send_message("Whoops! Looks like you provided an invalid command. Use `/help` for more info.")
