@@ -11,7 +11,9 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 # Create the bot object
-bot = commands.Bot(command_prefix = "!", intents = discord.Intents.default())
+intents = discord.Intents.default()
+intents.members = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Game variables
 campaigns = database.get_all()
@@ -86,7 +88,7 @@ async def change_mode(new_mode, name, interaction):
       if await is_dungeon_master(campaigns[i], interaction):
         global mode, campaign_index
         mode = new_mode
-        campaign_index = campaigns[i]
+        campaign_index = i
         if new_mode == CampaignMode.MANAGE:
           await interaction.response.send_message(f"You can now access management commands for `{campaigns[i]['name']}`.")
         elif new_mode == CampaignMode.PLAY:
@@ -165,10 +167,30 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
 @bot.tree.command(name="changename")
 @app_commands.describe(name="name")
 async def change_name(interaction: discord.Interaction, name: str):
-  if await is_manage_mode(campaigns[campaign_index], interaction):
+  if await is_dungeon_master(campaigns[campaign_index], interaction) and await is_manage_mode(campaigns[campaign_index], interaction):
     campaigns[campaign_index]["name"] = name
     database.update_item(campaigns[campaign_index])
     await interaction.response.send_message(f"Changed the name of the campaign to `{name}`.")
+
+# Add a player to a campaign
+@bot.tree.command(name="addplayer")
+@app_commands.describe(username="username")
+async def add_player(interaction: discord.Interaction, username: str):
+  if await is_manage_mode(campaigns[campaign_index], interaction):
+    for member in interaction.guild.members:
+      if member.name == username:
+        for player in campaigns[campaign_index]["players"]:
+          if player["name"] == username:
+            await interaction.response.send_message(f"`{username}` is already a player in `{campaigns[campaign_index]['name']}`.")
+            return
+        campaigns[campaign_index]["players"].append({
+          "name": username,
+          "inventory": []
+        })
+        database.update_item(campaigns[campaign_index])
+        await interaction.response.send_message(f"`{username}` has been added to {campaigns[campaign_index]['name']}.")
+        return
+    await interaction.response.send_message(f"No user with the name `{username}` exists in this server.")
 
 # Run the bot
 bot.run(TOKEN)
