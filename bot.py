@@ -38,9 +38,9 @@ campaign_index = -1
 
 # Item types
 class ItemType(Enum):
-  RESOURCE = "resource"
-  MELEE_WEAPON = "melee weapon"
-  RANGE_WEAPON = "range weapon"
+  RESOURCE = "Resource"
+  MELEE_WEAPON = "Melee weapon"
+  RANGE_WEAPON = "Range weapon"
 
 # Game functions
 def display_campaign_details(index):
@@ -49,12 +49,22 @@ def display_campaign_details(index):
   result += f"{index + 1}. `{campaigns[index]['name']}`\n> Dungeon Master: `{campaigns[index]['dungeon_master']}`"
   # The players of the campaign
   if len(campaigns[index]["players"]) > 0:
-    result += f"\n> Players:"
+    result += "\n> Players:"
     for j in range(len(campaigns[index]["players"])):
-      result += f"\n> {j + 1}. {campaigns[index]['players'][j]['name']}"
+      result += f"\n> {j + 1}. `{campaigns[index]['players'][j]['name']}`"
   # If the campaign has no players
   else:
-    result += f"\n> This campaign has no players."
+    result += "\n> This campaign has no players."
+  # The items of the campaign
+  if len(campaigns[index]["items"]) > 0:
+    result += "\n> Items:"
+    items = campaigns[index]["items"]
+    items_keys = list(items.keys())
+    for j in range(len(items_keys)):
+      item_details = f"{items[items_keys[j]]['type']}"
+      result += f"\n> {j + 1}. `{items_keys[j]}`: {item_details}"
+  else:
+    result += "\n> This campaign has no items."
   result += "\n"
   return result
 
