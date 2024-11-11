@@ -23,17 +23,24 @@ NOT_DUNGEON_MASTER = lambda campaign_name : f"It looks like you aren't the dunge
 NOT_PLAYER_NO_ACCESS = lambda campaign_name : f"It looks like you aren't a player in `{campaign_name}`. Only the campaign's players can call this command."
 NOT_PLAYER_NO_REMOVE = lambda campaign_name, username : f"No user with the name `{username}` exists in `{campaign_name}`, so you can't remove them from the campaign."
 NO_CAMPAIGN_FOUND = lambda campaign_name : f"No campaign was found with the name `{campaign_name}`! Use `/campaign show all` to get a list of all created campaigns."
-MANAGE_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like management mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign manage {campaign_name}` to use this command."
-PLAY_MODE_NOT_ACTIVE = lambda campaign_name : f"Whoops! It looks like play mode hasn't been enabled for `{campaign_name}`. Activate it using `/campaign play {campaign_name}` to use this command."
+ITEM_EXISTS = lambda campaign_name, item_name : f"There's already an item with the name `{item_name}` in `{campaign_name}`. Please try again with a different name."
+MANAGE_MODE_NOT_ACTIVE = "Whoops! It looks like management mode hasn't been enabled for any campaigns. Activate it using `/campaign manage` followed by the name of your campaign to use this command."
+PLAY_MODE_NOT_ACTIVE = "Whoops! It looks like play mode hasn't been enabled for any campaigns. Activate it using `/campaign play` followed by the name of your campaign to use this command."
 
 # Campaign modes
 class CampaignMode(Enum):
-  MANAGE = 1
-  PLAY = 2
-  NONE = 3
+  MANAGE = "manage"
+  PLAY = "play"
+  NONE = "none"
 
 mode = CampaignMode.NONE
 campaign_index = -1
+
+# Item types
+class ItemType(Enum):
+  RESOURCE = "resource"
+  MELEE_WEAPON = "melee weapon"
+  RANGE_WEAPON = "range weapon"
 
 # Game functions
 def display_campaign_details(index):
@@ -69,18 +76,24 @@ async def is_player(campaign, interaction, username, is_player_only_command):
     await interaction.response.send_message(NOT_PLAYER_NO_REMOVE(campaign["name"], username))
   return None
 
+async def does_item_exist(item_name, campaign, interaction):
+  if item_name in list(campaign["items"].keys()):
+    await interaction.response.send_message(ITEM_EXISTS(campaign["name"], item_name))
+    return True
+  return False
+
 # Check if management mode is active
-async def is_manage_mode(campaign, interaction):
+async def is_manage_mode(interaction):
   if mode == CampaignMode.MANAGE:
     return True
-  await interaction.response.send_message(MANAGE_MODE_NOT_ACTIVE(campaign["name"]))
+  await interaction.response.send_message(MANAGE_MODE_NOT_ACTIVE)
   return False
 
 # Check if play mode is active
 async def is_play_mode(interaction):
   if mode == CampaignMode.PLAY:
     return True
-  await interaction.response.send_message(PLAY_MODE_NOT_ACTIVE(campaign["name"]))
+  await interaction.response.send_message(PLAY_MODE_NOT_ACTIVE)
   return False
 
 # Change the type of commands that can be used
@@ -131,7 +144,7 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
           "name": name,
           "dungeon_master": interaction.user.name,
           "players": [],
-          "items": []
+          "items": {}
         }
         campaigns.append(database.add_item(new_campaign))
         await interaction.response.send_message(f"A new campaign with the name `{name}` has been created.")
@@ -171,7 +184,7 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
 @bot.tree.command(name="changename")
 @app_commands.describe(name="name")
 async def change_name(interaction: discord.Interaction, name: str):
-  if await is_dungeon_master(campaigns[campaign_index], interaction) and await is_manage_mode(campaigns[campaign_index], interaction):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction):
     campaigns[campaign_index]["name"] = name
     database.update_item(campaigns[campaign_index])
     await interaction.response.send_message(f"Changed the name of the campaign to `{name}`.")
@@ -180,7 +193,7 @@ async def change_name(interaction: discord.Interaction, name: str):
 @bot.tree.command(name="addplayer")
 @app_commands.describe(username="username")
 async def add_player(interaction: discord.Interaction, username: str):
-  if await is_manage_mode(campaigns[campaign_index], interaction):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction):
     for member in interaction.guild.members:
       if member.name == username:
         for player in campaigns[campaign_index]["players"]:
@@ -192,7 +205,7 @@ async def add_player(interaction: discord.Interaction, username: str):
           "inventory": []
         })
         database.update_item(campaigns[campaign_index])
-        await interaction.response.send_message(f"`{username}` has been added to `{campaigns[campaign_index]['name']}`.")
+        await interaction.response.send_message(f"`{username}` is now a player in `{campaigns[campaign_index]['name']}`.")
         return
     await interaction.response.send_message(f"No user with the name `{username}` exists in this server.")
 
@@ -201,10 +214,23 @@ async def add_player(interaction: discord.Interaction, username: str):
 @app_commands.describe(username="username")
 async def add_player(interaction: discord.Interaction, username: str):
   player = await is_player(campaigns[campaign_index], interaction, username, False)
-  if await is_manage_mode(campaigns[campaign_index], interaction) and player:
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and player:
     campaigns[campaign_index]["players"].remove(player)
     database.update_item(campaigns[campaign_index])
-    await interaction.response.send_message(f"`{username}` has been removed from `{campaigns[campaign_index]['name']}`.")
+    await interaction.response.send_message(f"`{username}` is no longer a player in `{campaigns[campaign_index]['name']}`.")
+
+# Create a new item that can be used in the campaign
+@bot.tree.command(name="addresource")
+@app_commands.describe(name="name")
+async def add_resource(interaction: discord.Interaction, name: str):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction):
+    campaigns[campaign_index]["items"].update({
+      name: {
+        "type": ItemType.RESOURCE.value
+      }
+    })
+    database.update_item(campaigns[campaign_index])
+    await interaction.response.send_message(f"A new resource with the name `{name}` has been added to `{campaigns[campaign_index]['name']}`.")
 
 # Run the bot
 bot.run(TOKEN)
