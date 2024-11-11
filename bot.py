@@ -24,6 +24,8 @@ NOT_PLAYER_NO_ACCESS = lambda campaign_name : f"It looks like you aren't a playe
 NOT_PLAYER_NO_REMOVE = lambda campaign_name, username : f"No user with the name `{username}` exists in `{campaign_name}`, so you can't remove them from the campaign."
 NO_CAMPAIGN_FOUND = lambda campaign_name : f"No campaign was found with the name `{campaign_name}`! Use `/campaign show all` to get a list of all created campaigns."
 ITEM_EXISTS = lambda campaign_name, item_name : f"There's already an item with the name `{item_name}` in `{campaign_name}`. Please try again with a different name."
+ITEM_CREATION = lambda campaign_name, item_name, item_type : f"A new {item_type} with the name `{item_name}` has been added to `{campaign_name}`."
+INVALID_ROLL = lambda roll : f"Whoops! `{roll}` isn't a valid roll. Please enter a valid one instead."
 MANAGE_MODE_NOT_ACTIVE = "Whoops! It looks like management mode hasn't been enabled for any campaigns. Activate it using `/campaign manage` followed by the name of your campaign to use this command."
 PLAY_MODE_NOT_ACTIVE = "Whoops! It looks like play mode hasn't been enabled for any campaigns. Activate it using `/campaign play` followed by the name of your campaign to use this command."
 
@@ -42,11 +44,14 @@ class ItemType(Enum):
   MELEE_WEAPON = "Melee weapon"
   RANGE_WEAPON = "Range weapon"
 
+# All possible dice that can be rolled
+DICE = [ 4, 6, 8, 10, 12, 20, 100 ]
+
 # Game functions
-def display_campaign_details(index):
+def display_campaign_details(index, show_num):
   result = ""
   # The name of the campaign and its dungeon master
-  result += f"{index + 1}. `{campaigns[index]['name']}`\n> Dungeon Master: `{campaigns[index]['dungeon_master']}`"
+  result += f"{index + 1 if show_num else 1}. `{campaigns[index]['name']}`\n> Dungeon Master: `{campaigns[index]['dungeon_master']}`"
   # The players of the campaign
   if len(campaigns[index]["players"]) > 0:
     result += "\n> Players:"
@@ -86,11 +91,37 @@ async def is_player(campaign, interaction, username, is_player_only_command):
     await interaction.response.send_message(NOT_PLAYER_NO_REMOVE(campaign["name"], username))
   return None
 
+# Check if an item's name has already been taken
 async def does_item_exist(item_name, campaign, interaction):
   if item_name in list(campaign["items"].keys()):
     await interaction.response.send_message(ITEM_EXISTS(campaign["name"], item_name))
     return True
   return False
+
+# Check if a roll is valid
+async def is_roll_valid(roll, interaction, with_addition):
+  valid = True
+  try:
+    dice_amount = int(roll.split("d")[0])
+    if dice_amount < 1:
+      raise Exception
+  except:
+    valid = False
+  try:
+    if "+" in roll and with_addition:
+      dice_type = int(roll.split("d")[1].split("+")[0])
+      int(roll.split("d")[1].split("+")[1])
+    elif "+" in roll and not with_addition:
+      raise Exception
+    else:
+      dice_type = int(roll.split("d")[1])
+    if dice_type not in DICE:
+      raise Exception
+  except:
+    valid = False
+  if not valid:
+    await interaction.response.send_message(INVALID_ROLL(roll))
+  return valid
 
 # Check if management mode is active
 async def is_manage_mode(interaction):
@@ -167,10 +198,10 @@ async def campaign(interaction: discord.Interaction, command: str, name: str):
       for i in range(len(campaigns)):
         # If we are showing all campaigns, add this campaign's details to the list
         if name == "all":
-          result += display_campaign_details(i)
+          result += display_campaign_details(i, True)
         # If we are showing a specific campaign, set the list's value to its details
         elif campaigns[i]["name"] == name:
-          result = display_campaign_details(i)
+          result = display_campaign_details(i, False)
           break
       else:
         if name != "all":
@@ -240,7 +271,22 @@ async def add_resource(interaction: discord.Interaction, name: str):
       }
     })
     database.update_item(campaigns[campaign_index])
-    await interaction.response.send_message(f"A new resource with the name `{name}` has been added to `{campaigns[campaign_index]['name']}`.")
+    await interaction.response.send_message(ITEM_CREATION(campaigns[campaign_index]["name"], name, "resource"))
+
+# Create a new melee weapon that can be used in the campaign
+@bot.tree.command(name="addmeleeweapon")
+@app_commands.describe(name="name", damage_roll="damage_roll")
+async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_roll: str):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction) and await is_roll_valid(damage_roll, interaction, False):
+    campaigns[campaign_index]["items"].update({
+      name: {
+        "type": ItemType.MELEE_WEAPON.value,
+        "hit": "1d20",
+        "damage": damage_roll
+      }
+    })
+    database.update_item(campaigns[campaign_index])
+    await interaction.response.send_message(ITEM_CREATION(campaigns[campaign_index]["name"], name, "melee weapon"))
 
 # Run the bot
 bot.run(TOKEN)
