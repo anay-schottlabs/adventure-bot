@@ -92,9 +92,10 @@ async def is_player(campaign, interaction, username, is_player_only_command):
   return None
 
 # Check if an item's name has already been taken
-async def does_item_exist(item_name, campaign, interaction):
+async def does_item_exist(item_name, campaign, interaction, send_message):
   if item_name in list(campaign["items"].keys()):
-    await interaction.response.send_message(ITEM_EXISTS(campaign["name"], item_name))
+    if send_message:
+      await interaction.response.send_message(ITEM_EXISTS(campaign["name"], item_name))
     return True
   return False
 
@@ -287,6 +288,30 @@ async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_r
     })
     database.update_item(campaigns[campaign_index])
     await interaction.response.send_message(ITEM_CREATION(campaigns[campaign_index]["name"], name, "melee weapon"))
+
+# Create a new ranged weapon that can be used in the campaign
+@bot.tree.command(name="addrangeweapon")
+@app_commands.describe(name="name", damage_roll="damage_roll", projectile="projectile", range_distance="range_distance")
+async def add_range_weapon(interaction: discord.Interaction, name: str, damage_roll: str, projectile: str, range_distance: int):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False):
+    # Check if the item being used as the projectile has already been created in the campaign
+    if not await does_item_exist(projectile, campaigns[campaign_index], interaction, False):
+      await interaction.response.send_message(f"No item with the name {projectile} is currently part of this campaign, so you can't use it as this weapon's projectile. Use `/campaign show {campaigns[campaign_index]['name']}` to see the items in this campaign.")
+    # The range of the weapon must be greater than zero and a multiple of 5
+    elif range_distance % 5 != 0 and range_distance <= 0:
+      await interaction.response.send_message(f"{range_distance} is not a valid range. Please ensure that the range of the weapon is greater than zero and a multiple of five.")
+    else:
+      campaigns[campaign_index]["items"].update({
+        name: {
+          "type": ItemType.RANGE_WEAPON.value,
+          "hit": "1d20",
+          "damage": damage_roll,
+          "projectile": projectile,
+          "range": range_distance
+        }
+      })
+      database.update_item(campaigns[campaign_index])
+      await interaction.response.send_message(ITEM_CREATION(campaigns[campaign_index]["name"], name, "ranged weapon"))
 
 # Run the bot
 bot.run(TOKEN)
