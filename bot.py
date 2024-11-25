@@ -66,8 +66,14 @@ def display_campaign_details(index, show_num):
     items = campaigns[index]["items"]
     items_keys = list(items.keys())
     for j in range(len(items_keys)):
-      item_details = f"{items[items_keys[j]]['type']}"
+      item = items[items_keys[j]]
+      item_details = f"{item['type']}"
+      if item['type'] != ItemType.RESOURCE.value:
+        item_details += f", `{item['damage']}` damage"
+        if item['type'] == ItemType.RANGE_WEAPON.value:
+          item_details += f", `{item['range']}` feet range, `{item['projectile']}` as projectile"
       result += f"\n> {j + 1}. `{items_keys[j]}`: {item_details}"
+  # If the campaign has no items
   else:
     result += "\n> This campaign has no items."
   result += "\n"
@@ -312,6 +318,22 @@ async def add_range_weapon(interaction: discord.Interaction, name: str, damage_r
       })
       database.update_item(campaigns[campaign_index])
       await interaction.response.send_message(ITEM_CREATION(campaigns[campaign_index]["name"], name, "ranged weapon"))
+
+# Delete the campaign
+@bot.tree.command(name="deletecampaign")
+@app_commands.describe()
+async def delete_campaign(interaction: discord.Interaction):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction):
+    # Get the name for the message
+    name = campaigns[campaign_index]["name"]
+    # Remove it from the list of campaigns and the database
+    database.remove_item(campaigns[campaign_index])
+    campaigns.remove(campaigns[campaign_index])
+    # Exit management mode
+    global mode
+    mode = CampaignMode.NONE
+    # Send the message with the name from earlier
+    await interaction.response.send_message(f"The campaign `{name}` has been deleted.")
 
 # Run the bot
 bot.run(TOKEN)
