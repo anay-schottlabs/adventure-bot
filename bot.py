@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import database
 from enum import Enum
+from random import randint
 
 # Getting the bot token
 load_dotenv()
@@ -108,6 +109,7 @@ async def does_item_exist(item_name, campaign, interaction, send_message):
 # Check if a roll is valid
 async def is_roll_valid(roll, interaction, with_addition):
   valid = True
+  addition = False
   try:
     dice_amount = int(roll.split("d")[0])
     if dice_amount < 1:
@@ -117,7 +119,7 @@ async def is_roll_valid(roll, interaction, with_addition):
   try:
     if "+" in roll and with_addition:
       dice_type = int(roll.split("d")[1].split("+")[0])
-      int(roll.split("d")[1].split("+")[1])
+      addition = int(roll.split("d")[1].split("+")[1])
     elif "+" in roll and not with_addition:
       raise Exception
     else:
@@ -126,9 +128,17 @@ async def is_roll_valid(roll, interaction, with_addition):
       raise Exception
   except:
     valid = False
-  if not valid:
-    await interaction.response.send_message(INVALID_ROLL(roll))
-  return valid
+  if valid:
+    return [ True, dice_amount, dice_type, addition if addition else 0 ]
+  await interaction.response.send_message(INVALID_ROLL(roll))
+  return [ False, None, None, None ]
+
+# Make a roll
+async def roll_dice(roll, interaction, text_prefix):
+  valid, dice_amount, dice_type, addition = await is_roll_valid(roll, interaction, True)
+  dice_roll = randint(1, dice_type) * dice_amount
+  if valid:
+    await interaction.response.send_message(f"{text_prefix}\n> Rolled `{roll}` and got `{dice_roll} + {addition}`.\n> Total: `{dice_roll + addition}`")
 
 # Check if management mode is active
 async def is_manage_mode(interaction):
@@ -284,7 +294,7 @@ async def add_resource(interaction: discord.Interaction, name: str):
 @bot.tree.command(name="addmeleeweapon")
 @app_commands.describe(name="name", damage_roll="damage_roll")
 async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_roll: str):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction) and await is_roll_valid(damage_roll, interaction, False):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction) and await is_roll_valid(damage_roll, interaction, False)[0]:
     campaigns[campaign_index]["items"].update({
       name: {
         "type": ItemType.MELEE_WEAPON.value,
@@ -299,7 +309,7 @@ async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_r
 @bot.tree.command(name="addrangeweapon")
 @app_commands.describe(name="name", damage_roll="damage_roll", projectile="projectile", range_distance="range_distance")
 async def add_range_weapon(interaction: discord.Interaction, name: str, damage_roll: str, projectile: str, range_distance: int):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False)[0]:
     # Check if the item being used as the projectile has already been created in the campaign
     if not await does_item_exist(projectile, campaigns[campaign_index], interaction, False):
       await interaction.response.send_message(f"No item with the name {projectile} is currently part of this campaign, so you can't use it as this weapon's projectile. Use `/campaign show {campaigns[campaign_index]['name']}` to see the items in this campaign.")
@@ -334,6 +344,20 @@ async def delete_campaign(interaction: discord.Interaction):
     mode = CampaignMode.NONE
     # Send the message with the name from earlier
     await interaction.response.send_message(f"The campaign `{name}` has been deleted.")
+
+# Make a custom dice roll
+@bot.tree.command(name="rollcustom")
+@app_commands.describe(roll="roll")
+async def roll_custom(interaction: discord.Interaction, roll: str):
+  is_dungeon_master_or_player = False
+  if interaction.user.name == campaigns[campaign_index]["dungeon_master"]:
+    is_dungeon_master_or_player = True
+  else:
+    for player in campaigns[campaign_index]["players"]:
+      if player["name"] == interaction.user.name:
+        is_dungeon_master_or_player = True
+  if await is_play_mode(interaction) and is_dungeon_master_or_player:
+    await roll_dice(roll, interaction, "Custom Roll:")
 
 # Run the bot
 bot.run(TOKEN)
