@@ -26,6 +26,7 @@ NOT_PLAYER_NO_REMOVE = lambda campaign_name, username : f"No user with the name 
 NO_CAMPAIGN_FOUND = lambda campaign_name : f"No campaign was found with the name `{campaign_name}`! Use `/campaign show all` to get a list of all created campaigns."
 ITEM_EXISTS = lambda campaign_name, item_name : f"There's already an item with the name `{item_name}` in `{campaign_name}`. Please try again with a different name."
 ITEM_CREATION = lambda campaign_name, item_name, item_type : f"A new {item_type} with the name `{item_name}` has been added to `{campaign_name}`."
+ITEM_NOT_FOUND = lambda campaign_name, item_name : f"No item with the name `{item_name}` exists in `{campaign_name}`."
 INVALID_ROLL = lambda roll : f"Whoops! `{roll}` isn't a valid roll. Please enter a valid one instead."
 MANAGE_MODE_NOT_ACTIVE = "Whoops! It looks like management mode hasn't been enabled for any campaigns. Activate it using `/campaign manage` followed by the name of your campaign to use this command."
 PLAY_MODE_NOT_ACTIVE = "Whoops! It looks like play mode hasn't been enabled for any campaigns. Activate it using `/campaign play` followed by the name of your campaign to use this command."
@@ -103,7 +104,7 @@ async def does_item_exist(item_name, campaign, interaction, send_message):
   if item_name in list(campaign["items"].keys()):
     if send_message:
       await interaction.response.send_message(ITEM_EXISTS(campaign["name"], item_name))
-    return True
+    return campaign["items"][item_name]
   return False
 
 # Check if a roll is valid
@@ -260,7 +261,7 @@ async def add_player(interaction: discord.Interaction, username: str):
             return
         campaigns[campaign_index]["players"].append({
           "name": username,
-          "inventory": []
+          "inventory": {}
         })
         database.update_item(campaigns[campaign_index])
         await interaction.response.send_message(f"`{username}` is now a player in `{campaigns[campaign_index]['name']}`.")
@@ -270,7 +271,7 @@ async def add_player(interaction: discord.Interaction, username: str):
 # Remove a player from a campaign
 @bot.tree.command(name="removeplayer")
 @app_commands.describe(username="username")
-async def add_player(interaction: discord.Interaction, username: str):
+async def remove_player(interaction: discord.Interaction, username: str):
   player = await is_player(campaigns[campaign_index], interaction, username, False)
   if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and player:
     campaigns[campaign_index]["players"].remove(player)
@@ -281,7 +282,7 @@ async def add_player(interaction: discord.Interaction, username: str):
 @bot.tree.command(name="addresource")
 @app_commands.describe(name="name")
 async def add_resource(interaction: discord.Interaction, name: str):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction):
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True):
     campaigns[campaign_index]["items"].update({
       name: {
         "type": ItemType.RESOURCE.value
@@ -294,7 +295,7 @@ async def add_resource(interaction: discord.Interaction, name: str):
 @bot.tree.command(name="addmeleeweapon")
 @app_commands.describe(name="name", damage_roll="damage_roll")
 async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_roll: str):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction) and await is_roll_valid(damage_roll, interaction, False)[0]:
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False)[0]:
     campaigns[campaign_index]["items"].update({
       name: {
         "type": ItemType.MELEE_WEAPON.value,
@@ -358,6 +359,44 @@ async def roll_custom(interaction: discord.Interaction, roll: str):
         is_dungeon_master_or_player = True
   if await is_play_mode(interaction) and is_dungeon_master_or_player:
     await roll_dice(roll, interaction, "Custom Roll:")
+
+# Give an item to a player
+@bot.tree.command(name="give")
+@app_commands.describe(username="username", amount="amount", item="item")
+async def give(interaction: discord.Interaction, username: str, amount: int, item: str):
+  # try to access the item
+  given_item = await does_item_exist(item, campaigns[campaign_index], interaction, False)
+  # make sure that the item exists in the campaign
+  if not given_item:
+    await interaction.response.send_message(ITEM_NOT_FOUND(campaigns[campaign_index]["name"], item))
+    return
+  # make sure that the player is not being given a negative amount of items
+  if amount < 1:
+    await interaction.response.send_message("You must give at least one item.")
+    return
+  if await is_play_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction):
+    # Look for the player in the campaign
+    for i in range(len(campaigns[campaign_index]["players"])):
+      player = campaigns[campaign_index]["players"][i]
+      if player["name"] == username:
+        start_amount = 0
+        # see if the player already has some of the same item
+        if item in player["inventory"].keys():
+          start_amount = player["inventory"][item]["amount"]
+        # create an object for the item, making sure to add the amount of the item that they had previously
+        inventory_item = {
+          item: {
+            "amount": amount + start_amount
+          }
+        }
+        # add the item's details to the inventory item
+        for key, value in given_item.items():
+          inventory_item[item][key] = value
+        # update the database
+        campaigns[campaign_index]["players"][i]["inventory"].update(inventory_item)
+        database.update_item(campaigns[campaign_index])
+        # send a success message
+        await interaction.response.send_message(f"Gave {amount} `{item + 's' if amount > 1 else item}` to `{player['name']}`.")
 
 # Run the bot
 bot.run(TOKEN)
