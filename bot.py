@@ -81,6 +81,13 @@ def display_campaign_details(index, show_num):
   result += "\n"
   return result
 
+# Get the inventory of a player with a specific name
+def get_player_inventory(username, campaign):
+  for i in range(len(campaign["players"])):
+    player = campaign["players"][i]
+    if player["name"] == username:
+      return player["inventory"]
+
 # Check if a user is the dungeon master of a campaign
 async def is_dungeon_master(campaign, interaction):
   if campaign["dungeon_master"] == interaction.user.name:
@@ -362,8 +369,8 @@ async def roll_custom(interaction: discord.Interaction, roll: str):
 
 # Give an item to a player
 @bot.tree.command(name="give")
-@app_commands.describe(username="username", amount="amount", item="item")
-async def give(interaction: discord.Interaction, username: str, amount: int, item: str):
+@app_commands.describe(username="username", item="item", amount="amount")
+async def give(interaction: discord.Interaction, username: str, item: str, amount: int):
   # try to access the item
   given_item = await does_item_exist(item, campaigns[campaign_index], interaction, False)
   # make sure that the item exists in the campaign
@@ -375,28 +382,48 @@ async def give(interaction: discord.Interaction, username: str, amount: int, ite
     await interaction.response.send_message("You must give at least one item.")
     return
   if await is_play_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction):
-    # Look for the player in the campaign
-    for i in range(len(campaigns[campaign_index]["players"])):
-      player = campaigns[campaign_index]["players"][i]
-      if player["name"] == username:
-        start_amount = 0
-        # see if the player already has some of the same item
-        if item in player["inventory"].keys():
-          start_amount = player["inventory"][item]["amount"]
-        # create an object for the item, making sure to add the amount of the item that they had previously
-        inventory_item = {
-          item: {
-            "amount": amount + start_amount
-          }
-        }
-        # add the item's details to the inventory item
-        for key, value in given_item.items():
-          inventory_item[item][key] = value
-        # update the database
-        campaigns[campaign_index]["players"][i]["inventory"].update(inventory_item)
-        database.update_item(campaigns[campaign_index])
-        # send a success message
-        await interaction.response.send_message(f"Gave {amount} `{item + 's' if amount > 1 else item}` to `{player['name']}`.")
+    start_amount = 0
+    inventory = get_player_inventory(username, campaigns[campaign_index])
+    # see if the player already has some of the same item
+    if item in inventory.keys():
+      start_amount = inventory[item]["amount"]
+    # create an object for the item, making sure to add the amount of the item that they had previously
+    inventory_item = {
+      item: {
+        "amount": amount + start_amount
+      }
+    }
+    # add the item's details to the inventory item
+    for key, value in given_item.items():
+      inventory_item[item][key] = value
+    # update the database
+    inventory.update(inventory_item)
+    database.update_item(campaigns[campaign_index])
+    # send a success message
+    await interaction.response.send_message(f"Gave {amount} `{item + 's' if amount > 1 else item}` to `{username}`.")
+
+# Show a player's inventory
+@bot.tree.command(name="inventory")
+@app_commands.describe()
+async def inventory(interaction: discord.Interaction):
+  username = interaction.user.name
+  if await is_play_mode(interaction) and await is_player(campaigns[campaign_index], interaction, username, True):
+    inventory = get_player_inventory(username, campaigns[campaign_index])
+    message = f"`{username}`'s inventory:"
+    if len(inventory) == 0:
+      message += "\n> This player currently has no items."
+    else:
+      items_keys = list(inventory.keys())
+      for j in range(len(items_keys)):
+        item = inventory[items_keys[j]]
+        item_details = f"{item['type']}"
+        if item['type'] != ItemType.RESOURCE.value:
+          item_details += f", `{item['damage']}` damage"
+          if item['type'] == ItemType.RANGE_WEAPON.value:
+            item_details += f", `{item['range']}` feet range, `{item['projectile']}` as projectile"
+        name = items_keys[j] + 's' if item['amount'] > 1 else items_keys[j]
+        message += f"\n> {j + 1}. {item['amount']} `{name}`: {item_details}"
+    await interaction.response.send_message(message)
 
 # Run the bot
 bot.run(TOKEN)
