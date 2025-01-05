@@ -18,6 +18,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Game variables
 campaigns = database.get_all()
+player_crits = []
 
 # Common messages
 NOT_DUNGEON_MASTER = lambda campaign_name : f"It looks like you aren't the dungeon master of `{campaign_name}`. Only the campaign's dungeon master can call this command."
@@ -81,6 +82,23 @@ def display_campaign_details(index, show_num):
   result += "\n"
   return result
 
+# Reduce the amount of a certain item that a player has
+async def reduce_item_amount(campaign, interaction, username, item, amount, is_projectile):
+  inventory = get_player_inventory(username, campaign)
+  if item in inventory.keys():
+    item_object = inventory[item]
+    item_object["amount"] -= amount
+    if item_object["amount"] <= 0:
+      del inventory[item]
+      database.update_item(campaign)
+    return True
+  elif is_projectile:
+    await interaction.response.send_message("You cannot use this weapon because you don't have its projectile in your inventory.")
+    return False
+  else:
+    await interaction.response.send_message("You cannot take an item that is not in someone's inventory.")
+    return False
+
 # Get the inventory of a player with a specific name
 def get_player_inventory(username, campaign):
   for i in range(len(campaign["players"])):
@@ -142,11 +160,19 @@ async def is_roll_valid(roll, interaction, with_addition):
   return [ False, None, None, None ]
 
 # Make a roll
-async def roll_dice(roll, interaction, text_prefix):
+async def roll_dice(roll, interaction, text_prefix, can_crit, username, apply_crit_damage):
   valid, dice_amount, dice_type, addition = await is_roll_valid(roll, interaction, True)
   dice_roll = randint(1, dice_type) * dice_amount
+  if can_crit and dice_type == 20 and dice_roll == 20:
+    crit_text = "CRITICAL HIT! "
+    if username not in player_crits:
+      player_crits.append(username)
+  elif apply_crit_damage:
+    crit_text = "CRITICAL DAMAGE! "
+  else:
+    crit_text = ""
   if valid:
-    await interaction.response.send_message(f"{text_prefix}\n> Rolled `{roll}` and got `{dice_roll} + {addition}`.\n> Total: `{dice_roll + addition}`")
+    await interaction.response.send_message(f"{text_prefix}\n> {crit_text}Rolled `{roll}` and got `({dice_roll} + {addition}){' * 2' if apply_crit_damage else ''}`.\n> Total: `{(dice_roll + addition) * (2 if apply_crit_damage else 1)}`")
 
 # Check if management mode is active
 async def is_manage_mode(interaction):
@@ -302,7 +328,8 @@ async def add_resource(interaction: discord.Interaction, name: str):
 @bot.tree.command(name="addmeleeweapon")
 @app_commands.describe(name="name", damage_roll="damage_roll")
 async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_roll: str):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False)[0]:
+  valid_roll = await is_roll_valid(damage_roll, interaction, False)
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and valid_roll[0]:
     campaigns[campaign_index]["items"].update({
       name: {
         "type": ItemType.MELEE_WEAPON.value,
@@ -317,7 +344,8 @@ async def add_melee_weapon(interaction: discord.Interaction, name: str, damage_r
 @bot.tree.command(name="addrangeweapon")
 @app_commands.describe(name="name", damage_roll="damage_roll", projectile="projectile", range_distance="range_distance")
 async def add_range_weapon(interaction: discord.Interaction, name: str, damage_roll: str, projectile: str, range_distance: int):
-  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and await is_roll_valid(damage_roll, interaction, False)[0]:
+  valid_roll = await is_roll_valid(damage_roll, interaction, False)
+  if await is_manage_mode(interaction) and await is_dungeon_master(campaigns[campaign_index], interaction) and not await does_item_exist(name, campaigns[campaign_index], interaction, True) and valid_roll[0]:
     # Check if the item being used as the projectile has already been created in the campaign
     if not await does_item_exist(projectile, campaigns[campaign_index], interaction, False):
       await interaction.response.send_message(f"No item with the name {projectile} is currently part of this campaign, so you can't use it as this weapon's projectile. Use `/campaign show {campaigns[campaign_index]['name']}` to see the items in this campaign.")
@@ -365,7 +393,7 @@ async def roll_custom(interaction: discord.Interaction, roll: str):
       if player["name"] == interaction.user.name:
         is_dungeon_master_or_player = True
   if await is_play_mode(interaction) and is_dungeon_master_or_player:
-    await roll_dice(roll, interaction, "Custom Roll:")
+    await roll_dice(roll, interaction, "Custom Roll:", False, "", False)
 
 # Give an item to a player
 @bot.tree.command(name="give")
@@ -421,9 +449,39 @@ async def inventory(interaction: discord.Interaction):
           item_details += f", `{item['damage']}` damage"
           if item['type'] == ItemType.RANGE_WEAPON.value:
             item_details += f", `{item['range']}` feet range, `{item['projectile']}` as projectile"
-        name = items_keys[j] + 's' if item['amount'] > 1 else items_keys[j]
-        message += f"\n> {j + 1}. {item['amount']} `{name}`: {item_details}"
+        name = f"`{items_keys[j]}`s" if item['amount'] > 1 else f"`{items_keys[j]}`"
+        message += f"\n> {j + 1}. {item['amount']} {name}: {item_details}"
     await interaction.response.send_message(message)
+
+# Allow a player to roll either an attempted attack or damage with a weapon
+@bot.tree.command(name="rollweapon")
+@app_commands.describe(roll_type="roll_type", weapon="weapon")
+async def roll_weapon(interaction: discord.Interaction, roll_type: str, weapon: str):
+  username = interaction.user.name
+  if await is_play_mode(interaction) and await is_player(campaigns[campaign_index], interaction, username, True):
+    inventory = get_player_inventory(username, campaigns[campaign_index])
+    # Make sure that the player has the weapon in their inventory, and that it is actually a weapon
+    if weapon in inventory.keys() and inventory[weapon]["type"] != ItemType.RESOURCE.value:
+      chosenWeapon = inventory[weapon]
+    else:
+      await interaction.response.send_message(f"You don't have any weapon in your inventory with the name `{weapon}`.")
+      return
+    match roll_type:
+      case "hit":
+        # If the item is a ranged weapon, make sure to subtract one of its projectiles from the player's inventory
+        if chosenWeapon["type"] == ItemType.RANGE_WEAPON.value:
+          success = await reduce_item_amount(campaigns[campaign_index], interaction, username, chosenWeapon["projectile"], 1, True)
+          if not success:
+            return
+        await roll_dice(chosenWeapon["hit"], interaction, f"Rolled to hit with {weapon}:", True, username, False)
+      case "damage":
+        is_crit_dmg = False
+        if username in player_crits:
+          is_crit_dmg = True
+          player_crits.remove(username)
+        await roll_dice(chosenWeapon["damage"], interaction, f"Rolled for damage with {weapon}:", False, "", is_crit_dmg)
+      case _:
+        await interaction.response.send_message("The roll type must be either `hit` or `damage`.")
 
 # Run the bot
 bot.run(TOKEN)
